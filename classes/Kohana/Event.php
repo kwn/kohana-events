@@ -14,62 +14,148 @@
 
 class Kohana_Event 
 {
-    public static $events = array();
+    public $events = array();
+    protected static $__instance = NULL;
+
+    /**
+     * factory
+     * 
+     * @access public
+     * @static
+     *
+     * @return mixed Value.
+     */
+    public static function factory()
+    {
+        return new Event();
+    }
+
+    /**
+     * instance
+     * 
+     * @access public
+     * @static
+     *
+     * @return mixed Value.
+     */
+    public static function instance()
+    {
+        if (static::$__instance === NULL)
+        {
+            static::$__instance = static::factory();
+        }
+        return static::$__instance;
+    }
+
+    /**
+     * events
+     * 
+     * @param mixed $key = NULL send a key to retrieve all callbacks on a specific key.  If no key is sent, an array of all callbacks for all keys is returned
+     * @param Event = NULL send along an event instance to apply this event to.  If no instance is set, the default instance is used
+     *
+     * @access public
+     * @static
+     *
+     * @return array an array of all callbacks
+     */
+    public static function events($key= NULL, Event $Event = NULL)
+    {
+        if ($Event === NULL)
+        {
+            $Event = self::instance();
+        }
+        if ($key === NULL)
+        {
+            return $Event->events;
+        }
+        else if (isset($Event->events[$key]))
+        {
+            return $Event->events[$key];   
+        }
+        else
+        {
+            return NULL;
+        }
+
+    }
 
     /**
      * registers a callback to a event key
-     * @param $key (string) event identifyer
-     * @param $callback (string|function) if this is a string, it must exist as a function.  if it is an array, then it must be callable (passed as [$object,'method'] or ['class','method'])
-     * @param $args (array|NULL) variable(s) passed by reference as args to the callback.  these args override any $args sent to callback by the 'trigger' method    
+     * @param string $key event type identifier
+     * @param string|array|closure $callback if this is a string, it must exist as a function.  if it is an array, then it must be callable (passed as [$object,'method'] or ['class','method']). it can also be sent as a closure
+     * @param array|NULL $args variable(s) passed by reference as args to the callback.  these args override any $args sent to callback by the 'trigger' method    
+     * @param array $options array containing any additional event options (here for future features). current valid options are max-runs
+     * @param Event = NULL send along an event instance to apply this event to.  If no instance is set, the default instance is used
+     * @return string $id and identifier for this specific event registration, can be used to un-register
      */
-    public static function register($key, $callback, &$args = NULL)
+    public static function register($key, $callback, &$args = NULL, $options = array(), Event $Event = NULL)
     {
-        if (!isset(self::$events[$key])) self::$events[$key] = array();
-        self::$events[$key][] = array('callback'=> $callback, 'args'=> &$args);
+        if ($Event === NULL)
+        {
+            $Event = self::instance();
+        }
+        if (!isset($Event->events[$key])) $Event->events[$key] = array();
+        $id = uniqid();
+        $Event->events[$key][$id] = array('callback'=> $callback, 'args'=> &$args, 'options'=> $options);
+        return $id;
     }
     
     /**
-     * triggers all callbacks for a given event key with $args passed by reference
-     * @param $key (string) event identifyer
-     * @param $callback (string|function|(class:method)|closure) if this is a string, it must exist as a function.  if it is an array, then it must be callable (passed as [$object,'method'] or ['class','method'])
-     */ 
-    public static function trigger($key,&$args = array())
+     * removes a callback based on an $id returned from event::register
+     * @param string $key event type identifier
+     * @param string $id event identifier
+     * @param Event = NULL send along an event instance to apply this event to.  If no instance is set, the default instance is used     
+     * @return boolean return TRUE if they $key.$id was set and removed, return FALSE if $key.$id was not set
+     */
+    public static function remove($key, $id, Event $Event = NULL)
     {
+        if ($Event === NULL)
+        {
+            $Event = self::instance();
+        }        
+        if (isset($Event->events[$key][$id]))
+        {
+            unset($Event->events[$key][$id]);
+            return TRUE;
+        }
+        else
+        {
+            return FALSE;
+        }
+    }
+
+    /**
+     * triggers all callbacks for a given event key with $args passed by reference
+     * @param $key (string) event identifier
+     * @param $callback (string|function|(class:method)|closure) if this is a string, it must exist as a function.  if it is an array, then it must be callable (passed as [$object,'method'] or ['class','method'])
+     * @param Event = NULL send along an event instance to apply this event to.  If no instance is set, the default instance is used     
+     */ 
+    public static function trigger($key,&$args = NULL, Event $Event = NULL)
+    {
+        if ($Event === NULL)
+        {
+            $Event = self::instance();
+        }           
         //return null if there are no callbacks assigned to this key
-        if (!isset(self::$events[$key]))
+        if (!isset($Event->events[$key]))
         {
             return NULL;
         }
         
-        //loop through each callback assigned to thhis key
-        foreach (self::$events[$key] as $i => $event)
+        //loop through each callback assigned to this key
+        foreach ($Event->events[$key] as $i => $event)
         {
 
-            //use 'call' args if no args were sent to the initial registration
-            if (!empty($event['args'])) $args = &$event['args']; 
+            // If no arguments were sent to "trigger" and there were arguments sent to "register"
+            if ($event['args'] !== NULL && $args === NULL) 
+            {
+                $args = &$event['args']; 
+            }
             
-            //get call type for callback (function, object, or static
-            $call_type = Args::call($event['callback'],array($args));
-            
-
-            
-            try {
-                if ($call_type == 'function') 
-                {
-                    $event['callback']($args);
-                }
-                else if ($call_type == 'static')
-                { 
-                    $event['callback'][0]::$event['callback'][1]($args);
-                } 
-                else if ($call_type == 'object')
-                {
-                    $event['callback'][0]->$event['callback'][1]($args);
-                }
-                else if ($call_type == 'closure')
-                {
-                    $event['callback']($args);
-                }                
+            try 
+            {
+                $ref_args = array(&$args);
+                $call = Args::call($event['callback'],$ref_args);
             } 
             catch (Exception $e) 
             {

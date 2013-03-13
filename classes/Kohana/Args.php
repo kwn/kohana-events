@@ -3,11 +3,11 @@
 class Kohana_Args {
 
     /**
-     * The check method can be used to validate, set default values, and cast arguments
+     * The check method can be used to validate, set default values, and cast argument values
      * 
-     * @param array &$args an array of arguments passed by reference.
-     * @param array &definitions 
-     * @param mixed $cast             Description.
+     * @param array &$args an array of arguments passed by reference to be validated based on the sent $definitions
+     * @param array $definitions an array of argument rules. supports: type, default, getdefault, validate, and required
+     * @param bool $cast = TRUE.  If true, this method will force-cast all variables in the passed-by-reference $args to their expected type
      *
      * @access public
      * @static
@@ -55,7 +55,7 @@ class Kohana_Args {
                 } 
 
                 // If this key is required but no value was set in args or by defaults
-                if ($def['required'] === TRUE)
+                if (isset($def['required']) && $def['required'] === TRUE)
                 {
                     throw new Kohana_Exception('Required Argument ":arg" was not set', array(':arg'=> $key));
                 }
@@ -70,17 +70,37 @@ class Kohana_Args {
                     foreach ($def['validate'] as $rule)
                     {
                         $validate_args = array();
-                        if (is_array($rule) && count($rule) === 2)
+                        // If array, assume: callback, args
+                        if (is_array($rule))
                         {
+                            // first element is the class
                             $validate = $rule[0];
-                            $valdate_args = $rule[1];
+                            if (isset($rule[1]) && is_array($rule[1]))
+                            {
+                                // if this is an array of arguments
+                                foreach ($rule[1] as $i => $arg)
+                                {
+                                    // if the value is meant to be sent as an argument
+                                    if ($arg === ':value')
+                                    {
+                                        $rule[1][$i] = $args[$key];
+                                    }
+                                }
+                            }
+                            else
+                            {
+                                $rule[1][0] = $args[$key];
+                            }
+                            $validate_args = $rule[1];
                         }
+                        // If not array, assume 'callback' and insert array(:value) as args
                         else
                         {
                             $validate = $rule;
+                            $validate_args = array($args[$key]);
                         }
 
-                        $valid = (bool) Arg::call($validate, $valdate_args);
+                        $valid = (bool) Args::call($validate, $validate_args);
                         if ($valid === FALSE)
                         {
                             throw new Kohana_Exception('Argument ":arg" is not valid', array(':arg'=> $key));
@@ -137,6 +157,7 @@ class Kohana_Args {
                                 }
                                 break;
                             case 'bool':
+                                // numbers & strings are evaluated into boolean TRUE or FALSE
                                 if (is_numeric($val) || is_bool($val) || strtolower($val) === 'true' || strtolower($val) === 'false') 
                                 {
                                     if (is_bool($val))
@@ -163,17 +184,29 @@ class Kohana_Args {
                                         break 2;
                                     }
                                 }
+                                break;
                             case 'string':
-                               if (is_string($val) || $val == '' || (!is_object($val) && $val == strval($val))) 
+                               // Accepts a string or an object that implements the __toString method
+                               if (is_string($val) || $val === '' || (is_scalar($val) && $val === strval($val)) || (is_object($val) && method_exists($val, '__toString'))  ) 
                                {
                                    $valid = TRUE;
                                    if ($cast === TRUE) 
                                    {
-                                      $args[$key] = (string) $val;
+                                      if (is_object($val))
+                                      {
+                                        $args[$key] = (string) $val->__toString();  
+                                      }
+                                      else
+                                      {
+                                        $args[$key] = (string) $val;  
+                                      }
+                                      
                                    }                               
                                    break 2;
                                }
+                               break;
                             case 'datetimestr':
+                                // Any string that strtotime can parse
                                 if (is_string($val) && strtotime($val)) 
                                 {
                                     $valid = TRUE;
@@ -224,12 +257,6 @@ class Kohana_Args {
                                     break 2;
                                 }
                                 break;
-                            case 'const':
-                                if (defined($val)) 
-                                {
-                                    $valid = TRUE;
-                                    break 2;
-                                }
                             case 'null':
                                 if ($val === NULL) 
                                 {
@@ -238,13 +265,29 @@ class Kohana_Args {
                                 }
                                 break;
                         } //End switch
-                    } // End foreach types             
+                    } // End foreach types     
+
+                    if ($valid === FALSE)        
+                    {
+                        throw new Kohana_Exception('Argument ":arg" is not a valid :types', array(':arg'=> $key, ':types'=> $types));
+                    }
                 } //end isset type
             } // End isset
         } // End foreach $definitions
     }
 
-    public static function call($callback, $args = array())
+    /**
+     * call will take a valid callback send arguments by reference.
+     * 
+     * @param callable $callback A string (valid function name), array('class','method'), array($Object,'method'), Closure $C
+     * @param array &$args An array of arguments to be passed to the callback in the order they are set in the array
+     *
+     * @access public
+     * @static
+     *
+     * @return mixed Return value from the call.
+     */
+    public static function call($callback, &$args = array())
     {
         if (!is_callable($callback))
         {
@@ -273,7 +316,7 @@ class Kohana_Args {
         } 
         catch (Exception $e) 
         {
-            throw new Kohana_Exception('Callback caused Exception! :error',array(':error', $e));
+            throw new Kohana_Exception('Callback caused Exception! :message :error',array(':message'=> $e->getMessage(), ':error', $e));
         }     
     }
 }
