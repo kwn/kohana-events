@@ -159,7 +159,8 @@ class Kohana_Event
             } 
             catch (Exception $e) 
             {
-                throw new Kohana_Exception('event call for key "'.$key.'" caused exception: '.$e->getMessage());
+            	throw $e;
+                //throw new Kohana_Exception('event call for key "'.$key.'" caused exception: '.$e->getMessage());
             }           
         }
     }

@@ -316,7 +316,7 @@ class Kohana_Args {
         } 
         catch (Exception $e) 
         {
-            throw new Kohana_Exception('Callback caused Exception! :message :error',array(':message'=> $e->getMessage(), ':error', $e));
+            throw $e;//new Kohana_Exception('Callback caused Exception! :message :error',array(':message'=> $e->getMessage(), ':error', $e));
         }     
     }
 }
